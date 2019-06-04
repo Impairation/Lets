@@ -33,6 +33,8 @@ from objects import rxscore
 from helpers.generalHelper import zingonify
 from objects.charts import BeatmapChart, OverallChart
 from common import generalUtils
+from secret.discord_hooks import Webhook
+
 
 MODULE_NAME = "submit_modular"
 class handler(requestsManager.asyncRequestHandler):
@@ -179,14 +181,6 @@ class handler(requestsManager.asyncRequestHandler):
 				relax = 1 if used_mods & 128 else 0
 				flashlight = 1 if used_mods & 1024 else 0
 
-				pp_limit = scoreUtils.getPPLimit(gamemode, relax, flashlight)
-				unrestricted_user = userUtils.noPPLimit(userID, relax)
-
-				if (s.pp >= pp_limit) and not unrestricted_user:
-					userUtils.restrict(userID)
-					userUtils.appendNotes(userID, "[GM: {gamemode}] Restricted due to too high pp gain{fl} ({pp}pp).".format(gamemode=s.gameMode, fl=' with flashlight' if flashlight else '', pp=s.pp))
-					log.warning("[GM: {gamemode}] **{username}** ({userid}) has been restricted due to too high pp gain{fl} **({pp}pp)**.".format(gamemode=s.gameMode, username=username, userid=userID, fl='with flashlight' if flashlight else '', pp=s.pp), "cm")
-
 				# Make sure the score is not memed
 				if s.gameMode == gameModes.MANIA and s.score > 1000000:
 					userUtils.ban(userID)
@@ -235,11 +229,21 @@ class handler(requestsManager.asyncRequestHandler):
 					flagsReadable = generalUtils.calculateFlags(int(haxFlags), used_mods, s.gameMode)
 					if len(flagsReadable) > 1:
 						userUtils.appendNotes(userID, "-- has received clientside flags: {} [{}] (cheated score id: {})".format(haxFlags, flagsReadable, s.scoreID))
-						log.warning("**{}** (https://akatsuki.pw/{relax}u/{}) has received clientside anti cheat flags.\n\nFlags: {}.\n[{}]\n\nScore ID: {scoreID}\nReplay: https://akatsuki.pw/web/replays/{scoreID}".format(username, userID, haxFlags, flagsReadable, scoreID=s.scoreID, relax="rx/" if isRelaxing else ""), "cm")
+						log.warning("**{}** (http://revipsu.cf/{relax}u/{}) has received clientside anti cheat flags.\n\nFlags: {}.\n[{}]\n\nScore ID: {scoreID}\nReplay: http://revipsu.cf/web/replays/{scoreID}".format(username, userID, haxFlags, flagsReadable, scoreID=s.scoreID, relax="rx/" if isRelaxing else ""), "staff")
 
 				if s.score < 0 or s.score > (2 ** 63) - 1:
 					userUtils.ban(userID)
 					userUtils.appendNotes(userID, "Banned due to negative score.")
+					
+			if (s.pp >= 2500 and bool(s.mods & 128) == True and s.gameMode == gameModes.STD) and restricted == False:
+				userUtils.restrict(userID)
+				userUtils.appendNotes(userID, "Restricted due to too high pp gain ({}pp)".format(s.pp))
+				log.warning("**{}** ({}) has been restricted due to too high pp gain **({}pp)**".format(username, userID, s.pp), "staff")
+			elif (s.pp >= 950 and bool(s.mods & 128) == False and s.gameMode == gameModes.STD) and restricted == False:
+				userUtils.restrict(userID)
+				userUtils.appendNotes(userID, "Restricted due to too high pp gain ({}pp)".format(s.pp))
+				log.warning("**{}** ({}) has been restricted due to too high pp gain **({}pp)**".format(username, userID, s.pp), "staff")
+									
 
 			# NOTE: Process logging was removed from the client starting from 20180322
 			# Save replay for all passed scores
@@ -355,7 +359,13 @@ class handler(requestsManager.asyncRequestHandler):
 						leaderboardHelper.update(userID, newUserData["pp"], s.gameMode)
 						leaderboardHelper.updateCountry(userID, newUserData["pp"], s.gameMode)
 
-			# TODO: Update total hits and max combo
+			# Update total hits 
+			if isRelaxing:
+				userUtils.updateTotalHitsrx(score=s)
+			else:
+				userUtils.updateTotalHits(score=s)
+			#TODO: max combo	
+			
 			# Update latest activity
 			userUtils.updateLatestActivity(userID)
 
@@ -364,6 +374,7 @@ class handler(requestsManager.asyncRequestHandler):
 
 			# Score submission and stats update done
 			log.debug("Score submission and user stats update done!")
+			oldStats = userUtils.getUserStats(userID, s.gameMode)
 
 			# Score has been submitted, do not retry sending the score if
 			# there are exceptions while building the ranking panel
@@ -460,15 +471,25 @@ class handler(requestsManager.asyncRequestHandler):
 				log.debug("Generated output for online ranking screen!")
 				log.debug(output)
 
+				userStats = userUtils.getUserStats(userID, s.gameMode)
+				if s.completed == 3 and restricted == False and beatmapInfo.rankedStatus >= rankedStatuses.RANKED and s.pp > 0:
+					glob.redis.publish("scores:new_score", json.dumps({
+					"gm":s.gameMode,
+					"user":{"username":username, "userID": userID, "rank":newUserData["gameRank"],"oldaccuracy":oldStats["accuracy"],"accuracy":newUserData["accuracy"], "oldpp":oldStats["pp"],"pp":newUserData["pp"]},
+					"score":{"scoreID": s.scoreID, "mods":s.mods, "accuracy":s.accuracy, "missess":s.cMiss, "combo":s.maxCombo, "pp":s.pp, "rank":newScoreboard.personalBestRank, "ranking":s.rank},
+					"beatmap":{"beatmapID": beatmapInfo.beatmapID, "beatmapSetID": beatmapInfo.beatmapSetID, "max_combo":beatmapInfo.maxCombo, "song_name":beatmapInfo.songName}
+					}))
+					
 				# Send message to #announce if we're rank #1
 				if newScoreboard.personalBestRank == 1 and s.completed == 3 and not restricted:
-					annmsg = "[{}] [https://akatsuki.pw/u/{} {}] achieved rank #1 on [https://osu.ppy.sh/b/{} {}] ({})".format(
+					annmsg = "[{}] [http://revipsu.cf/u/{} {}] achieved rank #1 on [https://osu.ppy.sh/b/{} {}] ({}) {}pp".format(
 						"RELAX" if isRelaxing else "VANILLA",
 						userID,
 						username.encode().decode("ASCII", "ignore"),
 						beatmapInfo.beatmapID,
 						beatmapInfo.songName.encode().decode("ASCII", "ignore"),
-						gameModes.getGamemodeFull(s.gameMode)
+						gameModes.getGamemodeFull(s.gameMode),
+						round(s.pp, 2)
 					)
 					params = urlencode({"k": glob.conf.config["server"]["apikey"], "to": "#announce", "msg": annmsg})
 					requests.get("{}/api/v1/fokabotMessage?{}".format(glob.conf.config["server"]["banchourl"], params))
@@ -476,6 +497,51 @@ class handler(requestsManager.asyncRequestHandler):
 					# Add the #1 to the database. Yes this is spaghetti.
 					scoreUtils.newFirst(s.scoreID, userID, s.fileMd5, s.gameMode, isRelaxing)
 
+					# upon new #1 = send the score to the discord bot
+					# s=0 = regular && s=1 = relax
+					ppGained = newUserData["pp"] - oldUserData["pp"]
+					gainedRanks = oldRank - rankInfo["currentRank"]
+					# webhook to discord
+
+					#TEMPORARY mods handle
+					ScoreMods = ""
+					
+					if s.mods == 0:
+						ScoreMods += "nomod"
+					if s.mods & mods.NOFAIL > 0:
+						ScoreMods += "NF"
+					if s.mods & mods.EASY > 0:
+						ScoreMods += "EZ"
+					if s.mods & mods.HIDDEN > 0:
+						ScoreMods += "HD"
+					if s.mods & mods.HARDROCK > 0:
+						ScoreMods += "HR"
+					if s.mods & mods.DOUBLETIME > 0:
+						ScoreMods += "DT"
+					if s.mods & mods.HALFTIME > 0:
+						ScoreMods += "HT"
+					if s.mods & mods.FLASHLIGHT > 0:
+						ScoreMods += "FL"
+					if s.mods & mods.SPUNOUT > 0:
+						ScoreMods += "SO"
+					if s.mods & mods.TOUCHSCREEN > 0:
+						ScoreMods += "TD"
+					if s.mods & mods.RELAX > 0:
+						ScoreMods += "RX"
+					if s.mods & mods.RELAX2 > 0:
+						ScoreMods += "AP"
+
+
+					url = glob.conf.config["webhooks"]["test"]
+				
+					embed = Webhook(url, color=0x35b75c)
+					embed.set_author(name=username.encode().decode("ASCII", "ignore"), icon='https://i.imgur.com/rdm3W9t.png')
+					embed.set_desc("[{}] Achieved #1 on mode **{}**, {} +{}!".format("RELAX" if isRelaxing else "VANILLA", gameModes.getGamemodeFull(s.gameMode), beatmapInfo.songName.encode().decode("ASCII", "ignore"), ScoreMods))
+					embed.add_field(name='Total: {}pp'.format(float("{0:.2f}".format(s.pp))), value='Gained: +{}pp'.format(float("{0:.2f}".format(ppGained))))
+					embed.add_field(name='Actual rank: {}'.format(rankInfo["currentRank"]), value='[Download Link](http://storage.ripple.moe/d/{})'.format(beatmapInfo.beatmapSetID))
+					embed.set_image('https://assets.ppy.sh/beatmaps/{}/covers/cover.jpg'.format(beatmapInfo.beatmapSetID))
+					embed.post()
+					
 				# Write message to client
 				self.write(output)
 			else:

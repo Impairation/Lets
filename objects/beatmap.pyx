@@ -8,7 +8,7 @@ from objects import glob
 
 class beatmap:
 	__slots__ = ["songName", "fileMD5", "rankedStatus", "rankedStatusFrozen", "beatmapID", "beatmapSetID", "offset",
-	             "rating", "starsStd", "starsTaiko", "starsCtb", "starsMania", "AR", "OD", "maxCombo", "hitLength",
+	             "rating", "starsStd", "starsTaiko", "starsCtb", "starsMania", "AR", "OD", "mode", "maxCombo", "hitLength",
 	             "bpm", "playcount" ,"passcount", "refresh"]
 
 	def __init__(self, md5 = None, beatmapSetID = None, gameMode = 0, refresh=False):
@@ -33,6 +33,7 @@ class beatmap:
 		self.starsMania = 0.0	# stars for converted
 		self.AR = 0.0
 		self.OD = 0.0
+		self.mode = -1
 		self.maxCombo = 0
 		self.hitLength = 0
 		self.bpm = 0
@@ -56,27 +57,24 @@ class beatmap:
 			# This beatmap is already in db, remove old record
 			# Get current frozen status
 			frozen = bdata["ranked_status_freezed"]
-			if frozen == 1:
+			if frozen:
 				self.rankedStatus = bdata["ranked"]
 			log.debug("Deleting old beatmap data ({})".format(bdata["id"]))
 			glob.db.execute("DELETE FROM beatmaps WHERE id = %s LIMIT 1", [bdata["id"]])
-			if self.beatmapID == 1816169:
-				log.cmyui("0: {}".format(self.beatmapID), discord="cm")
 		else:
 			# Unfreeze beatmap status
-			frozen = 0
-			if self.beatmapID == 1816169:
-				log.cmyui("1: {}".format(self.beatmapID), discord="cm")
+			frozen = False
 
 		# Add new beatmap data
 		log.debug("Saving beatmap data in db...")
-		glob.db.execute("INSERT INTO `beatmaps` (`id`, `beatmap_id`, `beatmapset_id`, `beatmap_md5`, `song_name`, `ar`, `od`, `difficulty_std`, `difficulty_taiko`, `difficulty_ctb`, `difficulty_mania`, `max_combo`, `hit_length`, `bpm`, `ranked`, `latest_update`, `ranked_status_freezed`) VALUES (NULL, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);", [
+		glob.db.execute("INSERT INTO `beatmaps` (`id`, `beatmap_id`, `beatmapset_id`, `beatmap_md5`, `song_name`, `ar`, `od`, `mode`, `difficulty_std`, `difficulty_taiko`, `difficulty_ctb`, `difficulty_mania`, `max_combo`, `hit_length`, `bpm`, `ranked`, `latest_update`, `ranked_status_freezed`) VALUES (NULL, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);", [
 			self.beatmapID,
 			self.beatmapSetID,
 			self.fileMD5,
 			self.songName.encode("utf-8", "ignore").decode("utf-8"),
 			self.AR,
 			self.OD,
+			self.mode,
 			self.starsStd,
 			self.starsTaiko,
 			self.starsCtb,
@@ -118,9 +116,7 @@ class beatmap:
 			expire *= 3
 
 		# Make sure the beatmap data in db is not too old
-		if int(expire) > 0 and time.time() > data["latest_update"]+int(expire):
-			if data["ranked_status_freezed"] == 1:
-				self.setDataFromDict(data)
+		if int(expire) > 0 and time.time() > data["latest_update"]+int(expire) and not data["ranked_status_freezed"]:
 			return False
 
 		# Data in DB, set beatmap data
@@ -145,7 +141,7 @@ class beatmap:
 		self.OD = float(data["od"])
 		self.starsStd = float(data["difficulty_std"])
 		self.starsTaiko = float(data["difficulty_taiko"])
-		self.starsCtb = float(data["difficulty_ctb"])
+		self.starsCtb = float(data["difficulty_ctb"])		
 		self.starsMania = float(data["difficulty_mania"])
 		self.maxCombo = int(data["max_combo"])
 		self.hitLength = int(data["hit_length"])
@@ -173,7 +169,7 @@ class beatmap:
 		elif dataTaiko is not None:
 			mainData = dataTaiko
 		elif dataCtb is not None:
-			mainData = dataCtb
+			mainData = dataCtb			
 		elif dataMania is not None:
 			mainData = dataMania
 
@@ -193,7 +189,7 @@ class beatmap:
 			elif dataTaiko is not None:
 				mainData = dataTaiko
 			elif dataCtb is not None:
-				mainData = dataCtb
+				mainData = dataCtb					
 			elif dataMania is not None:
 				mainData = dataMania
 
@@ -215,6 +211,7 @@ class beatmap:
 		self.beatmapSetID = int(mainData["beatmapset_id"])
 		self.AR = float(mainData["diff_approach"])
 		self.OD = float(mainData["diff_overall"])
+		self.mode = int(mainData["mode"])
 
 		# Determine stars for every mode
 		self.starsStd = 0.0
@@ -222,13 +219,16 @@ class beatmap:
 		self.starsCtb = 0.0
 		self.starsMania = 0.0
 		if dataStd is not None:
-			self.starsStd = float(dataStd["difficultyrating"])
+			self.starsStd = float(dataStd.get("difficultyrating", 0))
 		if dataTaiko is not None:
-			self.starsTaiko = float(dataTaiko["difficultyrating"])
+			self.starsTaiko = float(dataTaiko.get("difficultyrating", 0))
 		if dataCtb is not None:
-			self.starsCtb = float(dataCtb["difficultyrating"])
+			self.starsCtb = float(
+				next((x for x in (dataCtb.get("difficultyrating"), dataCtb.get("diff_aim")) if x is not None), 0)
+			)
 		if dataMania is not None:
-			self.starsMania = float(dataMania["difficultyrating"])
+			self.starsMania = float(dataMania.get("difficultyrating", 0))
+
 
 		self.maxCombo = int(mainData["max_combo"]) if mainData["max_combo"] is not None else 0
 		self.hitLength = int(mainData["hit_length"])

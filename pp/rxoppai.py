@@ -12,7 +12,7 @@ from constants import exceptions
 from helpers import mapsHelper
 
 # constants
-MODULE_NAME = "rxoppai"
+MODULE_NAME = "rippoppai"
 UNIX = True if os.name == "posix" else False
 
 def fixPath(command):
@@ -80,26 +80,26 @@ class oppai:
 				self.gameMode = None
 
 		# Calculate pp
-		log.debug("rxoppai ~> Initialized oppai diffcalc")
+		log.debug("oppai ~> Initialized oppai diffcalc")
 		self.calculatePP()
 
 	@staticmethod
 	def _runOppaiProcess(command):
-		log.debug("rxoppai ~> running {}".format(command))
-		process = subprocess.run((command + " -ojson"), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+		log.debug("oppai ~> running {}".format(command))
+		process = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 		try:
 			output = json.loads(process.stdout.decode("utf-8", errors="ignore"))
 			if "code" not in output or "errstr" not in output:
 				raise OppaiError("No code in json output")
 			if output["code"] != 200:
-				raise OppaiError("rxoppai error {}: {}".format(output["code"], output["errstr"]))
+				raise OppaiError("oppai error {}: {}".format(output["code"], output["errstr"]))
 			if "pp" not in output or "stars" not in output:
-				raise OppaiError("No pp/stars entry in rxoppai json output")
+				raise OppaiError("No pp/stars entry in oppai json output")
 			pp = output["pp"]
 			stars = output["stars"]
 
-			log.debug("rxoppai ~> full output: {}".format(output))
-			log.debug("rxoppai ~> pp: {}, stars: {}".format(pp, stars))
+			log.debug("oppai ~> full output: {}".format(output))
+			log.debug("oppai ~> pp: {}, stars: {}".format(pp, stars))
 		except (json.JSONDecodeError, IndexError, OppaiError) as e:
 			raise OppaiError(e)
 		return pp, stars
@@ -115,7 +115,7 @@ class oppai:
 		try:
 			# Build .osu map file path
 			mapFile = mapsHelper.cachedMapPath(self.beatmap.beatmapID)
-			log.debug("rxoppai ~> Map file: {}".format(mapFile))
+			log.debug("oppai ~> Map file: {}".format(mapFile))
 			mapsHelper.cacheMap(mapFile, self.beatmap)
 
 			# Use only mods supported by oppai
@@ -166,19 +166,19 @@ class oppai:
 					pp_list.append(pp)
 				self.pp = pp_list
 
-			log.debug("rxoppai ~> Calculated PP: {}, stars: {}".format(self.pp, self.stars))
-		except OppaiError as e:
-			log.error("rxoppai ~> rxoppai error! {}".format(str(e)))
+			log.debug("oppai ~> Calculated PP: {}, stars: {}".format(self.pp, self.stars))
+		except OppaiError:
+			log.error("oppai ~> oppai-ng error!")
 			self.pp = 0
 		except exceptions.osuApiFailException:
-			log.error("rxoppai ~> osu!api error!")
+			log.error("oppai ~> osu!api error!")
 			self.pp = 0
 		except exceptions.unsupportedGameModeException:
-			log.error("rxoppai ~> Unsupported gamemode")
+			log.error("oppai ~> Unsupported gamemode")
 			self.pp = 0
 		except Exception as e:
-			log.error("rxoppai ~> Unhandled exception: {}".format(str(e)))
+			log.error("oppai ~> Unhandled exception: {}".format(str(e)))
 			self.pp = 0
 			raise
 		finally:
-			log.debug("rxoppai ~> Shutting down, pp = {}".format(self.pp))
+			log.debug("oppai ~> Shutting down, pp = {}".format(self.pp))
