@@ -24,38 +24,7 @@ end
 
 Mods = Class:new()
 
-Mods.parse = function(self, modsString)
-	if not modsString then
-		modsString = ""
-	end
-	self.modsString = modsString
-	
-	self.scoreMultiplier = 1
-	self.timeRate = 1
-	self.overallDifficultyMultiplier = 1
-	if modsString:find("EZ") then
-		self.Easy = true
-		self.scoreMultiplier = self.scoreMultiplier * 0.5
-		self.overallDifficultyMultiplier = 0.5
-	end
-	if modsString:find("NF") then
-		self.NoFail = true
-		self.scoreMultiplier = self.scoreMultiplier * 0.5
-	end
-	if modsString:find("HT") then
-		self.HalfTime = true
-		self.scoreMultiplier = self.scoreMultiplier * 0.5
-		self.timeRate = 3/4
-	end
-	if modsString:find("DT") then
-		self.DoubleTime = true
-		self.timeRate = 3/2
-	end
-	
-	return self
-end
-
-Mods.parseBitwise = function(self, bitwise)
+Mods.parse = function(self, bitwise)
 	if not modsString then
 		modsString = ""
 	end
@@ -281,7 +250,12 @@ end
 OsuManiaPerformanceCalculator = Class:new()
 
 OsuManiaPerformanceCalculator.computeTotalValue = function(self)
-	local multiplier = 0.8
+	if self.mods.Relax or self.mods.Relax2 or self.mods.Autoplay then
+		self.totalValue = 0
+		return
+	end
+
+	local multiplier = 1.1
 	if self.mods.NoFail then
 		multiplier = multiplier * 0.90
 	end
@@ -291,6 +265,7 @@ OsuManiaPerformanceCalculator.computeTotalValue = function(self)
 	if self.mods.Easy then
 		multiplier = multiplier * 0.50
 	end
+	
 	
 	self:computeStrainValue()
 	self:computeAccValue()
@@ -307,8 +282,8 @@ OsuManiaPerformanceCalculator.computeStrainValue = function(self)
 	self.realScore = self.score * (1 / self.mods.scoreMultiplier)
 	local score = self.realScore
 
-	self.strainValue = (((5 * math.max(1, self.starRate / 0.0835) - 4) ^ 3) / 110000) * (1.1 + 0.55 * math.min(1, self.noteCount / 1500))
-	
+	self.strainValue = (((5 * math.max(1, self.starRate / 0.0825) - 4) ^ 3) / 110000) * (1 + 0.1 * math.min(1, self.noteCount / 1500))
+
 	if score <= 500000 then
 		self.strainValue = self.strainValue * ((score / 500000) * 0.1)
 	elseif score <= 600000 then
@@ -331,7 +306,7 @@ OsuManiaPerformanceCalculator.computeAccValue = function(self)
 		return
 	end
 	
-	self.accValue = math.pow((150 / hitWindow300) * math.pow(self.accuracy/100, 16), 1.8) * 2.55 * (math.min(1.15, math.pow(self.noteCount / 1500, 0.35)))
+	self.accValue = math.pow((150 / hitWindow300) * math.pow(self.accuracy/100, 16), 1.8) * 2.5 * (math.min(1.15, math.pow(self.noteCount / 1500, 0.3)))
 end
 
 PlayData = Class:new()
@@ -354,6 +329,43 @@ end
 
 PlayData.getPerformancePoints = function(self)
 	return self.performancePoints or self:computePerformancePoints() or self.performancePoints
+end
+
+PlayData.getData = function(self)
+	return {
+		modsData = self.mods.modsData,
+		scoreRate = self.mods.scoreRate,
+		timeRate = self.mods.timeRate,
+		odRate = self.mods.odRate,
+		starRate = playData.beatmap.starRate,
+		noteCount = playData.beatmap.noteCount,
+		scaledOD = 	playData.beatmap:getOverallDifficulty(),
+		od = playData.beatmap.od,
+		score = self.score,
+		realScore = self.realScore,
+		strainValue = self.strainValue,
+		accValue = self.accValue,
+		pp = self.getPerformancePoints
+	}
+end
+
+PlayData.getJSON = function(self)
+	local data = self:getData()
+	
+	local out = {}
+	out[1] = "{"
+	for key, value in pairs(data) do
+		out[#out + 1] = "\"" .. key .. "\":"
+		if type(value) == "number" then
+			out[#out + 1] = value .. ","
+		elseif type(value) == "string" then
+			out[#out + 1] = "\"" .. value .. "\","
+		end
+	end
+	out[#out] = out[#out]:sub(1, -2)
+	out[#out + 1] = "}"
+	
+	return table.concat(out)
 end
 
 PlayData.getAccuracyFromHits = function(self, numMiss, num50, num100, numKatu, num300, numGeki)
@@ -386,6 +398,8 @@ if arg then
 				input.accuracy = tonumber(nArg) / 100
 			elseif key == "verbose" or key == "v" then
 				input.verbose = true
+			elseif key == "json" or key == "j" then
+				input.json = true				
 			end
 			
 			i = i + 1
@@ -448,6 +462,8 @@ Play info
 				playData:getPerformancePoints()
 			)
 		)
+	elseif input.json then
+			print(playData:getJSON())		
 	else
 		print(playData:getPerformancePoints())
 	end
